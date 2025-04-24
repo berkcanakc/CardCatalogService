@@ -32,23 +32,26 @@ namespace CardCatalogService.Application.Services
             var mapped = _mapper.Map<IEnumerable<CardDto>>(cards);
 
             // Veriyi cache'e yaz (30 dakika sakla)
-            await _cacheService.SetAsync(cacheKey, mapped, TimeSpan.FromMinutes(30));
+            await _cacheService.SetAsync(cacheKey, mapped, TimeSpan.FromMinutes(10));
 
             return mapped;
         }
 
         public async Task<PagedList<CardDto>> SearchPagedAsync(CardSearchParameters parameters)
         {
+            string cacheKey = $"cards:search:{parameters.Page}:{parameters.PageSize}:{parameters.Query}:{parameters.MinPrice}:{parameters.MaxPrice}:{parameters.TypeFilter}";
+
+            var cached = await _cacheService.GetAsync<PagedList<CardDto>>(cacheKey);
+            if (cached is not null)
+                return cached;
+
             var (cards, totalCount) = await _cardRepository.SearchPagedAsync(parameters);
             var dtos = _mapper.Map<List<CardDto>>(cards);
-            return new PagedList<CardDto>(dtos, parameters.Page, parameters.PageSize, totalCount);
-        }
 
-        public async Task<PagedList<CardDto>> GetPagedAsync(int page, int pageSize)
-        {
-            var (cards, totalCount) = await _cardRepository.GetPagedAsync(page, pageSize);
-            var dtos = _mapper.Map<List<CardDto>>(cards);
-            return new PagedList<CardDto>(dtos, page, pageSize, totalCount);
+            var paged = new PagedList<CardDto>(dtos, parameters.Page, parameters.PageSize, totalCount);
+
+            await _cacheService.SetAsync(cacheKey, paged, TimeSpan.FromMinutes(10));
+            return paged;
         }
 
         public async Task<CardDto?> GetByIdAsync(int id)
@@ -68,7 +71,7 @@ namespace CardCatalogService.Application.Services
             var dto = _mapper.Map<CardDto>(card);
 
             // 3. Cache'e yaz
-            await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(30));
+            await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(10));
 
             return dto;
         }

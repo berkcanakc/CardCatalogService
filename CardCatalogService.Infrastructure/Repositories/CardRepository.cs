@@ -17,7 +17,9 @@ namespace CardCatalogService.Infrastructure.Repositories
 
         public async Task<IEnumerable<Card>> GetAllAsync()
         {
-            return await _context.Cards.ToListAsync();
+            return await _context.Cards.
+                Include(c => c.CardImages)
+                .ToListAsync();
         }
 
         public async Task<Card?> GetByIdAsync(int id)

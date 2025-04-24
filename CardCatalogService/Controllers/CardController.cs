@@ -36,9 +36,17 @@ namespace CardCatalogService.API.Controllers
 
         [HttpGet("paged")]
         [ProducesResponseType(typeof(PagedList<CardDto>), 200)]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+        public async Task<IActionResult> GetPaged([FromQuery] CardSearchParameters parameters)
         {
-            var result = await _cardService.GetPagedAsync(page, pageSize);
+            var result = await _cardService.SearchPagedAsync(parameters);
+            return Ok(result);
+        }
+
+        [HttpGet("search-paged")]
+        [ProducesResponseType(typeof(PagedList<CardDto>), 200)]
+        public async Task<IActionResult> SearchPaged([FromQuery] CardSearchParameters parameters)
+        {
+            var result = await _cardService.SearchPagedAsync(parameters);
             return Ok(result);
         }
 
@@ -55,11 +63,6 @@ namespace CardCatalogService.API.Controllers
             {
                 return NotFound(e.Message);
             }
-        }
-        [HttpGet("test-error")]
-        public IActionResult TestError()
-        {
-            throw new Exception("Bilinçli patlattık");
         }
     }
 }

@@ -3,6 +3,7 @@ using CardCatalogService.API.Middlewares;
 using CardCatalogService.Application.Interfaces;
 using CardCatalogService.Application.Mapping;
 using CardCatalogService.Application.Services;
+using CardCatalogService.Infrastructure.Authorization;
 using CardCatalogService.Infrastructure.Cache;
 using CardCatalogService.Infrastructure.Data;
 using CardCatalogService.Infrastructure.External;
@@ -58,9 +59,16 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 
+app.UseHangfireDashboard();
+
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
+
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = new[] { new AllowAllUsersFilter() }
+});
 
 app.MapControllers();
 
@@ -72,5 +80,6 @@ RecurringJob.AddOrUpdate<ISyncService>(
     service => service.SyncCardsAsync(),
     "*/30 * * * *"  // Cron format: her 30 dakikada bir
 );
+
 
 app.Run();

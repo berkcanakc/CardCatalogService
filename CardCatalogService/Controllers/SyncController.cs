@@ -18,6 +18,7 @@ namespace CardCatalogService.API.Controllers
         [HttpPost]
         public async Task<IActionResult> Sync()
         {
+            throw new Exception("Test patlattık!");
             await _syncService.SyncCardsAsync();
             return Ok("Kartlar başarıyla senkronize edildi.");
         }
