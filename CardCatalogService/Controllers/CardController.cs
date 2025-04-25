@@ -1,6 +1,8 @@
 ﻿using CardCatalogService.Application.DTOs;
 using CardCatalogService.Application.Interfaces;
+using CardCatalogService.Infrastructure.Cache;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace CardCatalogService.API.Controllers
 {
@@ -9,10 +11,12 @@ namespace CardCatalogService.API.Controllers
     public class CardController : ControllerBase
     {
         private readonly ICardService _cardService;
+        private readonly ICardCacheService _cardCacheService;
 
-        public CardController(ICardService cardService)
+        public CardController(ICardService cardService, ICardCacheService cardCacheService)
         {
             _cardService = cardService;
+            _cardCacheService = cardCacheService;
         }
 
         // GET: api/card
@@ -62,6 +66,48 @@ namespace CardCatalogService.API.Controllers
             catch (Exception e)
             {
                 return NotFound(e.Message);
+            }
+        }
+
+        [HttpPost("{id}/reserve")]
+        public async Task<IActionResult> ReserveStock(int id, [FromBody] StockRequest request)
+        {
+            try
+            {
+                await _cardService.ReserveStockAsync(id, request.Quantity);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("{id}/release")]
+        public async Task<IActionResult> ReleaseStock(int id, [FromBody] StockRequest request)
+        {
+            try
+            {
+                await _cardService.ReleaseStockAsync(id, request.Quantity);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("{id}/commit")]
+        public async Task<IActionResult> CommitStock(int id, [FromBody] StockRequest request)
+        {
+            try
+            {
+                await _cardService.CommitStockAsync(id, request.Quantity);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
             }
         }
     }

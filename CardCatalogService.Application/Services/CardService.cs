@@ -9,12 +9,14 @@ namespace CardCatalogService.Application.Services
         private readonly ICardRepository _cardRepository;
         private readonly IMapper _mapper;
         private readonly ICacheService _cacheService;
+        private readonly ICardCacheService _cardCacheService;
 
-        public CardService(ICardRepository cardRepository, IMapper mapper, ICacheService cacheService)
+        public CardService(ICardRepository cardRepository, IMapper mapper, ICacheService cacheService, ICardCacheService cardCacheService)
         {
             _cardRepository = cardRepository;
             _mapper = mapper;
             _cacheService = cacheService;
+            _cardCacheService = cardCacheService;
         }
 
         public async Task<IEnumerable<CardDto>> GetAllAsync()
@@ -87,6 +89,63 @@ namespace CardCatalogService.Application.Services
 
             _cardRepository.UpdateAsync(card);
             await _cardRepository.SaveChangesAsync();
+        }
+
+        public async Task ReserveStockAsync(int id, int quantity)
+        {
+            await _cardRepository.BeginTransactionAsync();
+
+            try
+            {
+                var card = await _cardRepository.GetByIdAsync(id);
+                if (card == null) throw new Exception("Card not found");
+
+                if (card.AvailableStock < quantity)
+                    throw new Exception("Insufficient stock");
+
+                card.ReservedStock += quantity;
+                await _cardRepository.SaveChangesAsync();
+
+                await _cardCacheService.RemoveCardFromCache(id);
+
+                await _cardRepository.CommitTransactionAsync();
+            }
+            catch (Exception)
+            {
+                await _cardRepository.RollbackTransactionAsync();
+                throw;
+            }
+        }
+
+        public async Task ReleaseStockAsync(int id, int quantity)
+        {
+            var card = await _cardRepository.GetByIdAsync(id);
+            if (card == null) throw new Exception("Card not found");
+
+            // Stok azalması
+            card.ReservedStock = Math.Max(0, card.ReservedStock - quantity);
+            await _cardRepository.SaveChangesAsync();
+
+            // Cache temizliği
+            await _cardCacheService.RemoveCardFromCache(id);
+        }
+
+        public async Task CommitStockAsync(int id, int quantity)
+        {
+            var card = await _cardRepository.GetByIdAsync(id);
+            if (card == null) throw new Exception("Card not found");
+
+            if (card.ReservedStock < quantity)
+                throw new Exception("Not enough reserved stock");
+
+            // ReservedStock ve Stock düşürme
+            card.ReservedStock -= quantity;
+            card.Stock -= quantity;
+
+            await _cardRepository.SaveChangesAsync();
+
+            // Cache temizliği
+            await _cardCacheService.RemoveCardFromCache(id);
         }
     }
 }

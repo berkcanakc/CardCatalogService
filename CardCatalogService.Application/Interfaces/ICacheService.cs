@@ -12,5 +12,8 @@
 
         // Anahtara karşılık gelen veriyi sil
         Task RemoveAsync(string key);
+
+        Task RemoveByPrefixAsync(string prefix);
+
     }
 }
