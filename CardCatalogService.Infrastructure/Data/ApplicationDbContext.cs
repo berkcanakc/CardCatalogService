@@ -11,7 +11,10 @@ namespace CardCatalogService.Infrastructure.Data
         }
 
         public DbSet<Card> Cards { get; set; }
+
         public DbSet<CardImage> CardImages { get; set; }
+
+        public DbSet<CardReservation> CardReservations { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

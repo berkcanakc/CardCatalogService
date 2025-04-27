@@ -1,4 +1,5 @@
 ﻿using CardCatalogService.Application.Interfaces;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace CardCatalogService.Infrastructure.Cache
 {
@@ -34,6 +35,26 @@ namespace CardCatalogService.Infrastructure.Cache
         {
             // Eğer Invalidate = RemoveAll ise, doğrudan reuse
             return RemoveAllCardCache();
+        }
+
+        public async Task<T?> GetAsync<T>(string key)
+        {
+            return await _cacheService.GetAsync<T>(key);
+        }
+
+        public async Task SetAsync<T>(string key, T value, TimeSpan? expiry = null)
+        {
+            await _cacheService.SetAsync(key, value, expiry);
+        }
+
+        public async Task RemoveAsync(string key)
+        {
+            await _cacheService.RemoveAsync(key);
+        }
+
+        public async Task RemoveByPrefixAsync(string prefix)
+        {
+            await _cacheService.RemoveByPrefixAsync(prefix);
         }
     }
 }

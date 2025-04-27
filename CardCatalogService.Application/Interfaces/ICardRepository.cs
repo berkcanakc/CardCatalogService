@@ -13,11 +13,6 @@ namespace CardCatalogService.Application.Interfaces
         Task AddAsync(Card card);
         Task UpdateAsync(Card card);
         Task SaveChangesAsync();
-
-        Task BeginTransactionAsync();
-
-        Task CommitTransactionAsync();
-
-        Task RollbackTransactionAsync();
+        Task<List<CardReservation>> GetActiveReservationsByCardIdAsync(int cardId);
     }
 }

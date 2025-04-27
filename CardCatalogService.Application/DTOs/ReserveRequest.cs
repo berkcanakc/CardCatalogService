@@ -6,8 +6,11 @@ using System.Threading.Tasks;
 
 namespace CardCatalogService.Application.DTOs
 {
-    public class StockRequest
+    public class ReserveRequest
     {
+        public int CardId { get; set; }
+        public int UserId { get; set; }
+        public int CartId { get; set; }
         public int Quantity { get; set; }
     }
 }

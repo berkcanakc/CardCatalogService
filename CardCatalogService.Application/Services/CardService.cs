@@ -10,51 +10,85 @@ namespace CardCatalogService.Application.Services
         private readonly IMapper _mapper;
         private readonly ICacheService _cacheService;
         private readonly ICardCacheService _cardCacheService;
+        private readonly IReservationRepository _reservationRepository;
 
-        public CardService(ICardRepository cardRepository, IMapper mapper, ICacheService cacheService, ICardCacheService cardCacheService)
+        public CardService(ICardRepository cardRepository, IMapper mapper, ICacheService cacheService, ICardCacheService cardCacheService, IReservationRepository reservationRepository)
         {
             _cardRepository = cardRepository;
             _mapper = mapper;
             _cacheService = cacheService;
             _cardCacheService = cardCacheService;
+            _reservationRepository = reservationRepository;
         }
 
         public async Task<IEnumerable<CardDto>> GetAllAsync()
         {
-            const string cacheKey = "all-cards";
+            var cachedCards = await _cardCacheService.GetAsync<List<CardDto>>("AllCards");
+            if (cachedCards is not null)
+                return cachedCards.AsEnumerable(); // Dönüştürüyoruz
 
-            // Önce cache'e bakalım
-            var cachedData = await _cacheService.GetAsync<IEnumerable<CardDto>>(cacheKey);
-            if (cachedData is not null)
-                return cachedData;
-
-            // Cache'te yoksa veritabanından al
             var cards = await _cardRepository.GetAllAsync();
+            var cardDtos = new List<CardDto>();
 
-            var mapped = _mapper.Map<IEnumerable<CardDto>>(cards);
+            foreach (var card in cards)
+            {
+                var activeReservations = await _reservationRepository.GetActiveReservationsByCardIdAsync(card.Id);
+                var reservedQuantity = activeReservations.Sum(r => r.Quantity);
 
-            // Veriyi cache'e yaz (30 dakika sakla)
-            await _cacheService.SetAsync(cacheKey, mapped, TimeSpan.FromMinutes(10));
+                var calculatedAvailableStock = card.Stock - reservedQuantity;
 
-            return mapped;
+                cardDtos.Add(new CardDto
+                {
+                    Id = card.Id,
+                    Name = card.Name,
+                    Stock = card.Stock,
+                    CalculatedAvailableStock = calculatedAvailableStock
+                });
+            }
+
+            await _cardCacheService.SetAsync("AllCards", cardDtos, TimeSpan.FromMinutes(5));
+
+            return cardDtos.AsEnumerable();
         }
+
 
         public async Task<PagedList<CardDto>> SearchPagedAsync(CardSearchParameters parameters)
         {
             string cacheKey = $"cards:search:{parameters.Page}:{parameters.PageSize}:{parameters.Query}:{parameters.MinPrice}:{parameters.MaxPrice}:{parameters.TypeFilter}";
 
+            // Önce cache kontrolü
             var cached = await _cacheService.GetAsync<PagedList<CardDto>>(cacheKey);
             if (cached is not null)
                 return cached;
 
+            // Cache yoksa DB'den kartları çek
             var (cards, totalCount) = await _cardRepository.SearchPagedAsync(parameters);
-            var dtos = _mapper.Map<List<CardDto>>(cards);
+            var dtos = new List<CardDto>();
+
+            foreach (var card in cards)
+            {
+                var activeReservations = await _reservationRepository.GetActiveReservationsByCardIdAsync(card.Id);
+                var reservedQuantity = activeReservations.Sum(r => r.Quantity);
+
+                var calculatedAvailableStock = card.Stock - reservedQuantity;
+
+                dtos.Add(new CardDto
+                {
+                    Id = card.Id,
+                    Name = card.Name,
+                    Stock = card.Stock,
+                    CalculatedAvailableStock = calculatedAvailableStock
+                });
+            }
 
             var paged = new PagedList<CardDto>(dtos, parameters.Page, parameters.PageSize, totalCount);
 
+            // Cache'e 10 dakikalığına at
             await _cacheService.SetAsync(cacheKey, paged, TimeSpan.FromMinutes(10));
+
             return paged;
         }
+
 
         public async Task<CardDto?> GetByIdAsync(int id)
         {
@@ -89,63 +123,6 @@ namespace CardCatalogService.Application.Services
 
             _cardRepository.UpdateAsync(card);
             await _cardRepository.SaveChangesAsync();
-        }
-
-        public async Task ReserveStockAsync(int id, int quantity)
-        {
-            await _cardRepository.BeginTransactionAsync();
-
-            try
-            {
-                var card = await _cardRepository.GetByIdAsync(id);
-                if (card == null) throw new Exception("Card not found");
-
-                if (card.AvailableStock < quantity)
-                    throw new Exception("Insufficient stock");
-
-                card.ReservedStock += quantity;
-                await _cardRepository.SaveChangesAsync();
-
-                await _cardCacheService.RemoveCardFromCache(id);
-
-                await _cardRepository.CommitTransactionAsync();
-            }
-            catch (Exception)
-            {
-                await _cardRepository.RollbackTransactionAsync();
-                throw;
-            }
-        }
-
-        public async Task ReleaseStockAsync(int id, int quantity)
-        {
-            var card = await _cardRepository.GetByIdAsync(id);
-            if (card == null) throw new Exception("Card not found");
-
-            // Stok azalması
-            card.ReservedStock = Math.Max(0, card.ReservedStock - quantity);
-            await _cardRepository.SaveChangesAsync();
-
-            // Cache temizliği
-            await _cardCacheService.RemoveCardFromCache(id);
-        }
-
-        public async Task CommitStockAsync(int id, int quantity)
-        {
-            var card = await _cardRepository.GetByIdAsync(id);
-            if (card == null) throw new Exception("Card not found");
-
-            if (card.ReservedStock < quantity)
-                throw new Exception("Not enough reserved stock");
-
-            // ReservedStock ve Stock düşürme
-            card.ReservedStock -= quantity;
-            card.Stock -= quantity;
-
-            await _cardRepository.SaveChangesAsync();
-
-            // Cache temizliği
-            await _cardCacheService.RemoveCardFromCache(id);
         }
     }
 }

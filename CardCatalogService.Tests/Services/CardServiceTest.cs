@@ -1,127 +1,178 @@
-﻿using Moq;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using CardCatalogService.Application.DTOs;
+﻿using Xunit;
+using Moq;
+using FluentAssertions;
 using CardCatalogService.Application.Interfaces;
-using CardCatalogService.Application.Services;
-using Xunit;
-using AutoMapper;
+using CardCatalogService.Application.DTOs;
 using CardCatalogService.Domain.Entities;
+using CardCatalogService.Application.Services;
+using AutoMapper;
 
-namespace CardCatalogService.Tests
+namespace CardCatalogService.Tests.Services
 {
     public class CardServiceTest
     {
         private readonly Mock<ICardRepository> _cardRepositoryMock;
+        private readonly Mock<IReservationRepository> _reservationRepositoryMock;
         private readonly Mock<ICardCacheService> _cardCacheServiceMock;
         private readonly Mock<ICacheService> _cacheServiceMock;
         private readonly Mock<IMapper> _mapperMock;
-        private readonly CardService _cardService;
+        private readonly ICardService _cardService;
 
         public CardServiceTest()
         {
             _cardRepositoryMock = new Mock<ICardRepository>();
-            _cardCacheServiceMock = new Mock<ICardCacheService>();
+            _reservationRepositoryMock = new Mock<IReservationRepository>();
             _cacheServiceMock = new Mock<ICacheService>();
+            _cardCacheServiceMock = new Mock<ICardCacheService>();
             _mapperMock = new Mock<IMapper>();
-            _cardService = new CardService(_cardRepositoryMock.Object, _mapperMock.Object, _cacheServiceMock.Object, _cardCacheServiceMock.Object);
+
+            _cardService = new CardService(
+                _cardRepositoryMock.Object,
+                _mapperMock.Object,
+                _cacheServiceMock.Object,
+                _cardCacheServiceMock.Object,
+                _reservationRepositoryMock.Object
+            );
         }
 
         [Fact]
-        public async Task GetAllAsync_ReturnsCardsFromCache_WhenCacheIsAvailable()
+        public async Task GetAllAsync_ShouldReturnAllCardsWithCalculatedAvailableStock()
         {
             // Arrange
-            var cachedCards = new List<CardDto> { new CardDto { Id = 1, Name = "Card 1" } };
-            _cacheServiceMock.Setup(cs => cs.GetAsync<IEnumerable<CardDto>>("all-cards"))
-                             .ReturnsAsync(cachedCards);
+            var cards = new List<Card>
+            {
+                new Card { Id = 1, Name = "Blue Eyes White Dragon", Stock = 10 },
+                new Card { Id = 2, Name = "Dark Magician", Stock = 5 }
+            };
+
+            _cardRepositoryMock.Setup(r => r.GetAllAsync())
+                .ReturnsAsync(cards);
+
+            _reservationRepositoryMock.Setup(r => r.GetActiveReservationsByCardIdAsync(It.IsAny<int>()))
+                .ReturnsAsync(new List<CardReservation>());
+
+            _cardCacheServiceMock.Setup(c => c.GetAsync<List<CardDto>>(It.IsAny<string>()))
+                .ReturnsAsync((List<CardDto>)null);
 
             // Act
             var result = await _cardService.GetAllAsync();
 
             // Assert
-            Assert.Equal(cachedCards, result);
-            _cacheServiceMock.Verify(cs => cs.GetAsync<IEnumerable<CardDto>>("all-cards"), Times.Once);
-            _cardRepositoryMock.Verify(cr => cr.GetAllAsync(), Times.Never);  // DB access should not happen
+            result.Should().HaveCount(2);
+            result.First().CalculatedAvailableStock.Should().Be(10);
         }
 
         [Fact]
-        public async Task GetAllAsync_ReturnsCardsFromDb_WhenCacheIsNotAvailable()
+        public async Task SearchPagedAsync_ShouldReturnPagedCardsWithCalculatedAvailableStock_AndCacheIt()
         {
             // Arrange
-            var dbCards = new List<Card> { new Card { Id = 1, Name = "Card 1" } };
-            _cacheServiceMock.Setup(cs => cs.GetAsync<IEnumerable<CardDto>>("all-cards")).ReturnsAsync((IEnumerable<CardDto>)null);
-            _cardRepositoryMock.Setup(cr => cr.GetAllAsync()).ReturnsAsync(dbCards);
-            _mapperMock.Setup(m => m.Map<IEnumerable<CardDto>>(dbCards)).Returns(new List<CardDto> { new CardDto { Id = 1, Name = "Card 1" } });
+            var parameters = new CardSearchParameters
+            {
+                Page = 1,
+                PageSize = 10
+            };
+
+            var dummyCards = new List<Card>
+    {
+        new Card
+        {
+            Id = 1,
+            Name = "Red Eyes Black Dragon",
+            Stock = 8
+        }
+    };
+
+            var dummyCardDtos = new List<CardDto>
+    {
+        new CardDto
+        {
+            Id = 1,
+            Name = "Red Eyes Black Dragon",
+            Stock = 8,
+            CalculatedAvailableStock = 8
+        }
+    };
+
+            // Cache'de olmadığını simüle ediyoruz (yani DB'ye gidecek)
+            _cacheServiceMock.Setup(c => c.GetAsync<PagedList<CardDto>>(It.IsAny<string>()))
+                .ReturnsAsync((PagedList<CardDto>)null);
+
+            // Repository kartları dönecek
+            _cardRepositoryMock.Setup(r => r.SearchPagedAsync(parameters))
+                .ReturnsAsync((dummyCards, 1));
+
+            // Reservationlardan boş dönecek (aktif rezervasyon yok)
+            _reservationRepositoryMock.Setup(r => r.GetActiveReservationsByCardIdAsync(It.IsAny<int>()))
+                .ReturnsAsync(new List<CardReservation>());
+
+            // Mapper mock'u
+            _mapperMock.Setup(m => m.Map<List<CardDto>>(It.IsAny<object>()))
+                .Returns(dummyCardDtos);
 
             // Act
-            var result = await _cardService.GetAllAsync();
+            var result = await _cardService.SearchPagedAsync(parameters);
 
             // Assert
-            Assert.Single(result);
-            _cacheServiceMock.Verify(cs => cs.GetAsync<IEnumerable<CardDto>>("all-cards"), Times.Once);
-            _cardRepositoryMock.Verify(cr => cr.GetAllAsync(), Times.Once);  // DB should be accessed once
-            _cacheServiceMock.Verify(cs => cs.SetAsync("all-cards", It.IsAny<IEnumerable<CardDto>>(), TimeSpan.FromMinutes(10)), Times.Once);  // Cache should be updated
+            result.Should().NotBeNull();
+            result.TotalCount.Should().Be(1);
+            result.Data.First().CalculatedAvailableStock.Should().Be(8);
+
+            // ✅ Asıl kritik: Cache'e yazılmış mı kontrol ediyoruz
+            _cacheServiceMock.Verify(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<PagedList<CardDto>>(),
+                It.IsAny<TimeSpan>()
+            ), Times.Once);
         }
 
+
         [Fact]
-        public async Task ReserveStockAsync_ThrowsException_WhenInsufficientStock()
+        public async Task SearchPagedAsync_ShouldReturnFromCache_WhenExists()
         {
             // Arrange
-            var card = new Card { Id = 1, Stock = 10, ReservedStock = 0 };
-            _cardRepositoryMock.Setup(cr => cr.GetByIdAsync(It.IsAny<int>())).ReturnsAsync(card);
+            var parameters = new CardSearchParameters
+            {
+                Page = 1,
+                PageSize = 10
+            };
 
-            // Act & Assert
-            var exception = await Assert.ThrowsAsync<Exception>(() => _cardService.ReserveStockAsync(1, 20));
-            Assert.Equal("Insufficient stock", exception.Message);
-            _cardRepositoryMock.Verify(cr => cr.SaveChangesAsync(), Times.Never);  // No save should happen
+            var dummyCards = new List<CardDto>
+    {
+        new CardDto
+        {
+            Id = 1,
+            Name = "Cached Dragon",
+            Stock = 10,
+            CalculatedAvailableStock = 9
         }
+    };
 
-        [Fact]
-        public async Task CommitStockAsync_UpdatesStock_WhenSufficientReservedStock()
-        {
-            // Arrange
-            var card = new Card { Id = 1, Stock = 10, ReservedStock = 5 };
-            _cardRepositoryMock.Setup(cr => cr.GetByIdAsync(It.IsAny<int>())).ReturnsAsync(card);
+            var cachedPagedList = new PagedList<CardDto>(
+                dummyCards,
+                page: 1,
+                pageSize: 10,
+                totalCount: 1
+            );
+
+            _cardCacheServiceMock.Setup(c => c.GetAsync<PagedList<CardDto>>(It.IsAny<string>()))
+                .ReturnsAsync(cachedPagedList);
+
+            _cacheServiceMock.Setup(c => c.GetAsync<PagedList<CardDto>>(It.IsAny<string>()))
+                .ReturnsAsync(cachedPagedList);
+
+            _mapperMock.Setup(m => m.Map<List<CardDto>>(It.IsAny<object>()))
+                .Returns(dummyCards);
 
             // Act
-            await _cardService.CommitStockAsync(1, 5);
+            var result = await _cardService.SearchPagedAsync(parameters);
 
             // Assert
-            Assert.Equal(0, card.ReservedStock);
-            Assert.Equal(5, card.Stock);
-            _cardRepositoryMock.Verify(cr => cr.SaveChangesAsync(), Times.Once);
-            _cardCacheServiceMock.Verify(ccs => ccs.RemoveCardFromCache(1), Times.Once);  // Cache invalidation
+            result.Should().NotBeNull();
+            result.TotalCount.Should().Be(1);
+            result.Data.First().Name.Should().Be("Cached Dragon");
+
+            _cardRepositoryMock.Verify(r => r.SearchPagedAsync(It.IsAny<CardSearchParameters>()), Times.Never);
         }
 
-        [Fact]
-        public async Task ReleaseStockAsync_UpdatesReservedStock_WhenCalled()
-        {
-            // Arrange
-            var card = new Card { Id = 1, Stock = 10, ReservedStock = 5 };
-            _cardRepositoryMock.Setup(cr => cr.GetByIdAsync(It.IsAny<int>())).ReturnsAsync(card);
-
-            // Act
-            await _cardService.ReleaseStockAsync(1, 3);
-
-            // Assert
-            Assert.Equal(2, card.ReservedStock);
-            _cardRepositoryMock.Verify(cr => cr.SaveChangesAsync(), Times.Once);
-            _cardCacheServiceMock.Verify(ccs => ccs.RemoveCardFromCache(1), Times.Once);  // Cache invalidation
-        }
-
-        [Fact]
-        public async Task CommitStockAsync_ThrowsException_WhenNotEnoughReservedStock()
-        {
-            // Arrange
-            var card = new Card { Id = 1, Stock = 10, ReservedStock = 2 };
-            _cardRepositoryMock.Setup(cr => cr.GetByIdAsync(It.IsAny<int>())).ReturnsAsync(card);
-
-            // Act & Assert
-            var exception = await Assert.ThrowsAsync<Exception>(() => _cardService.CommitStockAsync(1, 5));
-            Assert.Equal("Not enough reserved stock", exception.Message);
-            _cardRepositoryMock.Verify(cr => cr.SaveChangesAsync(), Times.Never);  // Save should not happen
-            _cardCacheServiceMock.Verify(ccs => ccs.RemoveCardFromCache(1), Times.Never);  // Cache should not be invalidated
-        }
     }
 }

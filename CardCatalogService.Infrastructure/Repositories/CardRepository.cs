@@ -103,19 +103,12 @@ namespace CardCatalogService.Infrastructure.Repositories
         {
             await _context.SaveChangesAsync();
         }
-        public async Task BeginTransactionAsync()
+        public async Task<List<CardReservation>> GetActiveReservationsByCardIdAsync(int cardId)
         {
-            await _context.Database.BeginTransactionAsync();
-        }
-
-        public async Task CommitTransactionAsync()
-        {
-            await _context.Database.CommitTransactionAsync();
-        }
-
-        public async Task RollbackTransactionAsync()
-        {
-            await _context.Database.RollbackTransactionAsync();
+            return await _context.CardReservations
+                .Where(r => r.CardId == cardId)
+                .Where(r => !r.IsConfirmed && !r.IsReleased)
+                .ToListAsync();
         }
     }
 }

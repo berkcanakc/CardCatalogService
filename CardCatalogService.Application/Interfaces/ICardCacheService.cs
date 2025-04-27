@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace CardCatalogService.Application.Interfaces
 {
-    public interface ICardCacheService
+    public interface ICardCacheService : ICacheService
     {
         Task RemoveCardFromCache(int cardId);
 

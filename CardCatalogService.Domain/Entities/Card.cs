@@ -9,9 +9,6 @@
         public string Description { get; set; } = string.Empty;
         public decimal Price { get; set; }        // Dış API'den gelen fiyat
         public int Stock { get; set; }            // Admin tarafından güncellenen stok
-        public int ReservedStock { get; set; }
-
-        public int AvailableStock => Stock - ReservedStock;
         public ICollection<CardImage> CardImages { get; set; }
     }
 }
