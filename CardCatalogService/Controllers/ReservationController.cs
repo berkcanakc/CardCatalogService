@@ -40,7 +40,7 @@ namespace CardCatalogService.Controllers
 
         // Kullanıcı sepeti boşalttığında veya süresi dolduğunda kullanılır
         [HttpPost("release-batch")]
-        public async Task<IActionResult> ReleaseBatch([FromBody] ReservationBatchRequest request)
+        public async Task<IActionResult> ReleaseStockBatchAlias([FromBody] ReservationBatchRequest request)
         {
             await _reservationService.ReleaseBatchAsync(request);
             return Ok();
